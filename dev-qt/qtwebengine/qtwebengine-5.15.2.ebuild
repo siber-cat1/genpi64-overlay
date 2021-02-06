@@ -1,4 +1,4 @@
-# Copyright 1999-2020 Gentoo Authors
+# Copyright 1999-2021 Gentoo Authors
 # Distributed under the terms of the GNU General Public License v2
 
 EAPI=7
@@ -9,13 +9,13 @@ inherit multiprocessing python-any-r1 qt5-build
 DESCRIPTION="Library for rendering dynamic web content in Qt5 C++ and QML applications"
 
 # patchset based on https://github.com/chromium-ppc64le releases
-SRC_URI+=" ppc64? ( https://dev.gentoo.org/~gyakovlev/distfiles/${PN}-5.15.0-ppc64.tar.xz )"
+SRC_URI+=" ppc64? ( https://dev.gentoo.org/~gyakovlev/distfiles/${PN}-5.15.2-ppc64.tar.xz )"
 
 if [[ ${QT5_BUILD_TYPE} == release ]]; then
-	KEYWORDS="~amd64 ~arm ~arm64 ~ppc64 ~x86"
+	KEYWORDS="amd64 ~arm arm64 ~ppc64 x86"
 fi
 
-IUSE="alsa bindist designer geolocation jumbo-build kerberos pulseaudio +system-ffmpeg +system-icu widgets"
+IUSE="alsa bindist designer geolocation kerberos pulseaudio +system-ffmpeg +system-icu widgets"
 REQUIRED_USE="designer? ( widgets )"
 
 RDEPEND="
@@ -40,9 +40,9 @@ RDEPEND="
 	media-libs/lcms:2
 	media-libs/libjpeg-turbo:=
 	media-libs/libpng:0=
-	>=media-libs/libvpx-1.5:=[svc]
+	>=media-libs/libvpx-1.5:=[svc(+)]
 	media-libs/libwebp:=
-	media-libs/mesa[egl,X(+)]
+	media-libs/mesa[egl]
 	media-libs/opus
 	sys-apps/dbus
 	sys-apps/pciutils
@@ -82,21 +82,17 @@ DEPEND="${RDEPEND}
 "
 
 PATCHES=(
-	"${FILESDIR}/${P}-disable-fatal-warnings.patch" # bug 695446
-	"${FILESDIR}/${PN}-5.14.2-icu67.patch" # bug 720054
-	"${FILESDIR}/${P}-gcc-10.patch" # bug 721876
-	"${FILESDIR}/${P}-bug-734356.patch"
+	"${FILESDIR}/${PN}-5.15.0-disable-fatal-warnings.patch" # bug 695446
+	"${FILESDIR}/${P}-icu-68.patch" # bug 751997, QTBUG-88116
+	"${FILESDIR}/${P}-icu-68-v8-runtime-fix.patch"
 )
 
 src_prepare() {
-	if use ppc64; then
-		eapply "${WORKDIR}/${PN}-ppc64"
-	fi
-
-	if ! use jumbo-build; then
+	# QTBUG-88657 - jumbo-build is broken
+	#if ! use jumbo-build; then
 		sed -i -e 's|use_jumbo_build=true|use_jumbo_build=false|' \
 			src/buildtools/config/common.pri || die
-	fi
+	#fi
 
 	# bug 630834 - pass appropriate options to ninja when building GN
 	sed -e "s/\['ninja'/&, '-j$(makeopts_jobs)', '-l$(makeopts_loadavg "${MAKEOPTS}" 0)', '-v'/" \
@@ -127,6 +123,22 @@ src_prepare() {
 	qt_use_disable_mod widgets widgets src/src.pro
 
 	qt5-build_src_prepare
+
+	# we need to generate ppc64 stuff because upstream does not ship it yet
+	if use ppc64; then
+		einfo "Patching for ppc64le and generating build files"
+		eapply "${WORKDIR}/${PN}-ppc64"
+		pushd src/3rdparty/chromium/third_party/libvpx > /dev/null || die
+		mkdir -vp source/config/linux/ppc64 || die
+		mkdir -p source/libvpx/test || die
+		touch source/libvpx/test/test.mk || die
+		# generate_gni.sh runs git at the end of process, prevent it.
+		git() {	: ; }
+		export -f git
+		./generate_gni.sh || die
+		unset git
+		popd >/dev/null || die
+	fi
 }
 
 src_configure() {
